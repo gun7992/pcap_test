@@ -24,6 +24,7 @@ struct IPv4_header{
 struct TCP_header{
     uint16_t S_port;
     uint16_t D_port;
+    uint8_t Data_offset;
 };
 
 void usage() // inform user aobut usage of this application.
@@ -66,10 +67,12 @@ struct TCP_header *set_tcp(const u_char *p) //setup TCP header with packet data.
     struct TCP_header *TH = reinterpret_cast<struct TCP_header*>(malloc(sizeof(struct TCP_header)));
     uint8_t sprt[] = {p[34], p[35]};
     uint8_t dprt[] = {p[36], p[37]};
+    uint8_t offset = (p[46] >> 4) & 0x0f;
     uint16_t *Sport = reinterpret_cast<uint16_t*>(sprt);
     uint16_t *Dport = reinterpret_cast<uint16_t*>(dprt);
     TH -> S_port = ntohs(*Sport);
     TH -> D_port = ntohs(*Dport);
+    TH -> Data_offset = offset;
     return TH;
 }
 void print_MACadd(u_char* p) //print MAC address.
@@ -93,6 +96,16 @@ void print_IPadd(uint32_t *p) // print IP address.
         copp = copp >> 8;
     }
     printf("%d.%d.%d.%d\n", add[0], add[1], add[2], add[3]);
+}
+
+void print_TCPData(const u_char* p, struct TCP_header* TCP)
+{
+    printf("TCP Data : ");
+    for(int i = 0; i < ((5 - TCP->Data_offset) * 4); i++ )
+    {
+        printf("%02x ",p[54 + i]);
+    }
+    printf("\n");
 }
 
 
@@ -125,7 +138,7 @@ int main(int argc, char* argv[]) {
     struct TCP_header *TCP = set_tcp(packet);
 
     //check Network and Transport layer's protocol and if it is not IP && TCP, continue.
-    if(Ether->Type != 0x0800 && IP->protocol != 0x06)
+    if((Ether->Type != 0x0800) || (IP->protocol != 6))
     {
         free(TCP);
         free(IP);
@@ -151,6 +164,16 @@ int main(int argc, char* argv[]) {
     //print Port Number of source and destination.
     printf("Source Port : %d\n",TCP->S_port);
     printf("Destination Port : %d\n",TCP->D_port);
+    printf("Data offset : %d\n",TCP -> Data_offset);
+    printf("offset = %02x\n", packet[46]);
+    if(TCP->Data_offset != 5)
+    {
+        print_TCPData(packet,TCP);
+    }
+    else
+    {
+        printf("No Data\n");
+    }
 
     //free malloc()ed structure TCP, IP and Ether.
     free(TCP);
