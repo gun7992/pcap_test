@@ -10,7 +10,7 @@ struct Ethernet_header{
     u_char D_mac[6];
     u_char S_mac[6];
     u_int16_t Type;
-};
+}; //14-Bytes.
 
 //IPv4 header structure.
 struct IPv4_header{
@@ -18,14 +18,15 @@ struct IPv4_header{
     uint8_t protocol;
     uint32_t S_ip;
     uint32_t D_ip;
-};
+    uint16_t len;
+}; //len-Bytes.
 
 //TCP header structure.
 struct TCP_header{
     uint16_t S_port;
     uint16_t D_port;
     uint8_t Data_offset;
-};
+}; //Data_offset-Bytes.
 
 void usage() // inform user aobut usage of this application.
 {
@@ -37,8 +38,8 @@ struct Ethernet_header *set_Ether(const u_char *p) //setup Ethernet header with 
 {
     int i = 0;
     struct Ethernet_header *EH = reinterpret_cast<struct Ethernet_header*>(malloc(sizeof(struct Ethernet_header)));
-    u_int8_t t[2] = {p[12],p[13]};
-    uint16_t *type_in_header = reinterpret_cast<uint16_t *>(t);
+    u_int8_t type[2] = {p[12],p[13]};
+    uint16_t *type_in_header = reinterpret_cast<uint16_t *>(type);
     for(i = 0; i < 6; i++)
         EH->D_mac[i] = p[i];
     for(i = 0; i < 6; i++)
@@ -46,7 +47,7 @@ struct Ethernet_header *set_Ether(const u_char *p) //setup Ethernet header with 
 
     EH->Type = ntohs(*type_in_header);
     return EH;
-}
+}//Done.
 
 struct IPv4_header *set_ip(const u_char *p) //setup IP header with packet data.
 {
@@ -55,6 +56,7 @@ struct IPv4_header *set_ip(const u_char *p) //setup IP header with packet data.
     uint8_t dip[] = {p[30], p[31], p[32], p[33]};
     uint32_t *sipp = reinterpret_cast<uint32_t *>(sip);
     uint32_t *dipp = reinterpret_cast<uint32_t *>(dip);
+    IH->len = p[14] & 0x0f;
     IH->version = p[14] >> 4;
     IH->protocol = p[23];
     IH->S_ip = ntohl(*sipp);
@@ -62,12 +64,13 @@ struct IPv4_header *set_ip(const u_char *p) //setup IP header with packet data.
     return IH;
 }
 
-struct TCP_header *set_tcp(const u_char *p) //setup TCP header with packet data.
+struct TCP_header *set_tcp(const u_char *p, uint16_t idx) //setup TCP header with packet data.
 {
     struct TCP_header *TH = reinterpret_cast<struct TCP_header*>(malloc(sizeof(struct TCP_header)));
-    uint8_t sprt[] = {p[34], p[35]};
-    uint8_t dprt[] = {p[36], p[37]};
-    uint8_t offset = (p[46] >> 4) & 0x0f;
+    uint16_t index = 14 + (idx * 4);
+    uint8_t sprt[] = {p[index], p[index + 1]};
+    uint8_t dprt[] = {p[index + 2], p[index + 3]};
+    uint8_t offset = p[index + 12] >> 4;
     uint16_t *Sport = reinterpret_cast<uint16_t*>(sprt);
     uint16_t *Dport = reinterpret_cast<uint16_t*>(dprt);
     TH -> S_port = ntohs(*Sport);
@@ -98,14 +101,28 @@ void print_IPadd(uint32_t *p) // print IP address.
     printf("%d.%d.%d.%d\n", add[0], add[1], add[2], add[3]);
 }
 
-void print_TCPData(const u_char* p, struct TCP_header* TCP)
+void print_TCPData(const u_char* p, struct TCP_header* TCP, struct IPv4_header* IP, unsigned int len)
 {
+    unsigned int index = 14 + IP->len * 4 + TCP->Data_offset * 4;
     printf("TCP Data : ");
-    for(int i = 0; i < ((5 - TCP->Data_offset) * 4); i++ )
+    if(len - index > 0)
     {
-        printf("%02x ",p[54 + i]);
+        if(len - index < 11)
+        {
+            for(unsigned int i = index; i < len; i++ )
+            {
+                printf("%02x ",p[i]);
+            }
+        }
+        else
+        {
+            for (unsigned int i = index; i < index + 10; i++)
+            {
+                printf("%02x ",p[i]);
+            }
+        }
+        printf("\n");
     }
-    printf("\n");
 }
 
 
@@ -135,10 +152,10 @@ int main(int argc, char* argv[]) {
     //initialize headers.
     struct Ethernet_header *Ether = set_Ether(packet);
     struct IPv4_header *IP = set_ip(packet);
-    struct TCP_header *TCP = set_tcp(packet);
+    struct TCP_header *TCP = set_tcp(packet, IP->len);
 
     //check Network and Transport layer's protocol and if it is not IP && TCP, continue.
-    if((Ether->Type != 0x0800) || (IP->protocol != 6))
+    if(Ether->Type != 0x0800 && IP->protocol != 0x06)
     {
         free(TCP);
         free(IP);
@@ -161,19 +178,14 @@ int main(int argc, char* argv[]) {
     printf("Destination IP = ");
     print_IPadd(&IP->D_ip);
 
+    printf("index : %d\n",IP->len);
+
     //print Port Number of source and destination.
     printf("Source Port : %d\n",TCP->S_port);
     printf("Destination Port : %d\n",TCP->D_port);
-    printf("Data offset : %d\n",TCP -> Data_offset);
-    printf("offset = %02x\n", packet[46]);
-    if(TCP->Data_offset != 5)
-    {
-        print_TCPData(packet,TCP);
-    }
-    else
-    {
-        printf("No Data\n");
-    }
+
+    //print data at most 10 bytes.
+    print_TCPData(packet,TCP,IP,header->caplen);
 
     //free malloc()ed structure TCP, IP and Ether.
     free(TCP);
@@ -183,3 +195,4 @@ int main(int argc, char* argv[]) {
   pcap_close(handle);
   return 0;
 }
+
