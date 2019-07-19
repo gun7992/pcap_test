@@ -28,6 +28,10 @@ struct TCP_header{
     uint8_t Data_offset;
 }; //Data_offset-Bytes.
 
+struct DATA{
+    u_char data[10];
+};
+
 void usage() // inform user aobut usage of this application.
 {
   printf("syntax: pcap_test <interface>\n");
@@ -78,6 +82,22 @@ struct TCP_header *set_tcp(const u_char *p, uint16_t idx) //setup TCP header wit
     TH -> Data_offset = offset;
     return TH;
 }
+
+struct DATA *set_data(const u_char *p, struct TCP_header *TCP, struct IPv4_header *IP, unsigned int packet_len)
+{
+    unsigned int index = 14 + (TCP->Data_offset * 4) + (IP->len * 4);
+    unsigned int size = packet_len - index;
+
+    struct DATA *D = reinterpret_cast<struct DATA*>(malloc(sizeof(struct DATA)));
+
+    for(unsigned int i = 0; i < size; i++)
+    {
+        D->data[i] = p[index + i];
+    }
+
+    return D;
+}
+
 void print_MACadd(u_char* p) //print MAC address.
 {
     for (int i = 0; i < 6; i ++)
@@ -101,28 +121,13 @@ void print_IPadd(uint32_t *p) // print IP address.
     printf("%d.%d.%d.%d\n", add[0], add[1], add[2], add[3]);
 }
 
-void print_TCPData(const u_char* p, struct TCP_header* TCP, struct IPv4_header* IP, unsigned int len)
+void print_DATA(struct DATA* D)
 {
-    unsigned int index = 14 + IP->len * 4 + TCP->Data_offset * 4;
-    printf("TCP Data : ");
-    if(len - index > 0)
+    for (int i = 0; i < 10; i++)
     {
-        if(len - index < 11)
-        {
-            for(unsigned int i = index; i < len; i++ )
-            {
-                printf("%02x ",p[i]);
-            }
-        }
-        else
-        {
-            for (unsigned int i = index; i < index + 10; i++)
-            {
-                printf("%02x ",p[i]);
-            }
-        }
-        printf("\n");
+        printf("%02x ",D->data[i]);
     }
+    printf("\n");
 }
 
 
@@ -153,9 +158,10 @@ int main(int argc, char* argv[]) {
     struct Ethernet_header *Ether = set_Ether(packet);
     struct IPv4_header *IP = set_ip(packet);
     struct TCP_header *TCP = set_tcp(packet, IP->len);
+    struct DATA *DAT = set_data(packet, TCP, IP, header->caplen);
 
     //check Network and Transport layer's protocol and if it is not IP && TCP, continue.
-    if(Ether->Type != 0x0800 && IP->protocol != 0x06)
+    if(Ether->Type != 0x0800 || IP->protocol != 0x06)
     {
         free(TCP);
         free(IP);
@@ -185,8 +191,11 @@ int main(int argc, char* argv[]) {
     printf("Destination Port : %d\n",TCP->D_port);
 
     //print data at most 10 bytes.
-    print_TCPData(packet,TCP,IP,header->caplen);
-
+    if(*DAT->data != '\x00')
+    {
+        printf("DATA : ");
+        print_DATA(DAT);
+    }
     //free malloc()ed structure TCP, IP and Ether.
     free(TCP);
     free(IP);
